@@ -1,11 +1,13 @@
 
 "use client";
+
 import LogoutButton from "./LogoutButton";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
+  Dumbbell,
   UserRound,
   GraduationCap,
   CalendarDays,
@@ -20,12 +22,21 @@ import {
 const menuItems = [
   { title: "Главная", href: "/dashboard", icon: LayoutDashboard },
   { title: "Ученики", href: "/dashboard/students", icon: Users },
+  {
+    title: "Тренировочные группы",
+    href: "/dashboard/groups",
+    icon: Dumbbell,
+  },
   { title: "Родители", href: "/dashboard/parents", icon: UserRound },
   { title: "Тренеры", href: "/dashboard/coaches", icon: GraduationCap },
   { title: "Расписание", href: "/dashboard/schedule", icon: CalendarDays },
   { title: "Абонементы", href: "/dashboard/subscriptions", icon: CreditCard },
   { title: "Оплаты", href: "/dashboard/payments", icon: Wallet },
-  { title: "Посещаемость", href: "/dashboard/attendance", icon: ClipboardCheck },
+  {
+    title: "Посещаемость",
+    href: "/dashboard/attendance",
+    icon: ClipboardCheck,
+  },
   { title: "STR Points", href: "/dashboard/points", icon: Trophy },
   { title: "Пользователи", href: "/dashboard/users", icon: ShieldCheck },
   { title: "Настройки", href: "/dashboard/settings", icon: Settings },
@@ -69,12 +80,11 @@ export default function Sidebar() {
             </Link>
           );
         })}
-            </nav>
+      </nav>
 
-      {/* Кнопка выхода из аккаунта */}
       <div className="mt-6 border-t border-zinc-800 pt-4">
         <LogoutButton />
-    </div>
+      </div>
     </aside>
   );
 }
