@@ -19,21 +19,37 @@ export async function createGuardian(
 ): Promise<ActionState> {
   // 1. Проверяем идентификатор ученика.
   if (!UUID_REGEX.test(studentId)) {
-    return { error: "Некорректный идентификатор ученика." };
+    return {
+      error: "Некорректный идентификатор ученика.",
+    };
   }
 
   // 2. Получаем и нормализуем данные формы.
-  const firstName = String(formData.get("first_name") ?? "").trim();
-  const lastName = String(formData.get("last_name") ?? "").trim();
-  const phone = String(formData.get("phone") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
+  const firstName = String(
+    formData.get("first_name") ?? ""
+  ).trim();
+
+  const lastName = String(
+    formData.get("last_name") ?? ""
+  ).trim();
+
+  const phone = String(
+    formData.get("phone") ?? ""
+  ).trim();
+
+  const email = String(
+    formData.get("email") ?? ""
+  ).trim();
+
   const relationship = String(
     formData.get("relationship") ?? ""
   ).trim();
 
-  // 3. Проверяем входные данные на сервере.
+  // 3. Проверяем обязательные поля.
   if (!firstName || !lastName) {
-    return { error: "Укажите имя и фамилию." };
+    return {
+      error: "Укажите имя и фамилию.",
+    };
   }
 
   if (firstName.length > 100 || lastName.length > 100) {
@@ -42,23 +58,32 @@ export async function createGuardian(
     };
   }
 
+  // 4. Проверяем телефон.
   if (phone.length < 5 || phone.length > 30) {
-    return { error: "Проверьте номер телефона." };
+    return {
+      error: "Проверьте номер телефона.",
+    };
   }
 
+  // 5. Проверяем email, если он указан.
   if (
     email.length > 254 ||
     (email !== "" &&
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
-    return { error: "Укажите корректный email." };
+    return {
+      error: "Укажите корректный email.",
+    };
   }
 
+  // 6. Проверяем степень родства.
   if (!["parent", "guardian"].includes(relationship)) {
-    return { error: "Выберите степень родства." };
+    return {
+      error: "Выберите степень родства.",
+    };
   }
 
-  // 4. Проверяем действующую пользовательскую сессию.
+  // 7. Проверяем действующую пользовательскую сессию.
   const supabase = await createClient();
 
   const {
@@ -72,9 +97,9 @@ export async function createGuardian(
     };
   }
 
-  // 5. Создаём представителя через защищённую SQL-функцию.
-  // Проверка роли, академии и основного представителя
-  // выполняется внутри одной серверной транзакции.
+  // 8. Создаём представителя через защищённую SQL-функцию.
+  // Проверки роли, академии и основного представителя
+  // выполняются внутри функции Supabase.
   const { data: guardianId, error: createError } =
     await supabase.rpc("create_student_guardian", {
       p_student_id: studentId,
@@ -85,19 +110,26 @@ export async function createGuardian(
       p_relationship: relationship,
     });
 
+  // 9. Обрабатываем ошибки сохранения.
   if (createError || !guardianId) {
     console.error("Guardian creation failed:", {
       code: createError?.code,
     });
 
-    if (createError?.message.includes("Insufficient privileges")) {
+    if (
+      createError?.message?.includes(
+        "Insufficient privileges"
+      )
+    ) {
       return {
         error: "Недостаточно прав для этой операции.",
       };
     }
 
     if (
-      createError?.message.includes("Student not found in academy")
+      createError?.message?.includes(
+        "Student not found in academy"
+      )
     ) {
       return {
         error: "Ученик не найден в вашей академии.",
@@ -110,10 +142,10 @@ export async function createGuardian(
     };
   }
 
-  // 6. Обновляем страницы и возвращаемся к ученику.
+  // 10. Обновляем страницы после успешного сохранения.
   revalidatePath("/dashboard/students");
   revalidatePath(`/dashboard/students/${studentId}`);
 
+  // 11. Возвращаемся в карточку ученика.
   redirect(`/dashboard/students/${studentId}`);
 }
-

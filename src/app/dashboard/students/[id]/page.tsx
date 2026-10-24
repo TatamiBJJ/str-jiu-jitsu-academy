@@ -35,6 +35,9 @@ const relationshipLabels: Record<string, string> = {
   guardian: "Законный представитель",
 };
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function formatDate(value: string | null) {
   if (!value) return "—";
 
@@ -71,16 +74,14 @@ export default async function StudentDetailsPage({
 }) {
   const { id } = await params;
 
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      id
-    )
-  ) {
+  // Проверяем идентификатор ученика.
+  if (!UUID_REGEX.test(id)) {
     notFound();
   }
 
   const supabase = await createClient();
 
+  // Загружаем ученика.
   const { data: student, error } = await supabase
     .from("students")
     .select(
@@ -101,17 +102,16 @@ export default async function StudentDetailsPage({
     notFound();
   }
 
-  const {
-    data: guardians,
-    error: guardiansError,
-  } = await supabase
-    .from("student_guardians")
-    .select(
-      "id, first_name, last_name, phone, email, relationship, is_primary, is_active"
-    )
-    .eq("student_id", student.id)
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: true });
+  // Загружаем родителей и законных представителей.
+  const { data: guardians, error: guardiansError } =
+    await supabase
+      .from("student_guardians")
+      .select(
+        "id, first_name, last_name, phone, email, relationship, is_primary, is_active"
+      )
+      .eq("student_id", student.id)
+      .order("is_primary", { ascending: false })
+      .order("created_at", { ascending: true });
 
   const activeGuardians =
     guardians?.filter((guardian) => guardian.is_active) ?? [];
@@ -125,7 +125,10 @@ export default async function StudentDetailsPage({
       label: "Дата рождения",
       value: formatDate(student.date_of_birth),
     },
-    { label: "Телефон", value: student.phone || "—" },
+    {
+      label: "Телефон",
+      value: student.phone || "—",
+    },
     {
       label: "Пояс",
       value: beltLabels[student.belt] ?? student.belt,
@@ -161,13 +164,27 @@ export default async function StudentDetailsPage({
         Персональная карточка ученика
       </p>
 
+      {/* Редактирование ученика */}
+      <div className="mt-5 flex flex-wrap gap-3">
+        <Link
+          href={`/dashboard/students/${student.id}/edit`}
+          className="inline-flex items-center rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+        >
+          Редактировать ученика
+        </Link>
+      </div>
+
+      {/* Информация об ученике */}
       <div className="mt-8 grid gap-5 sm:grid-cols-2">
         {studentFields.map((item) => (
           <div
             key={item.label}
             className="rounded-xl border border-zinc-800 bg-zinc-900 p-5"
           >
-            <p className="text-sm text-zinc-400">{item.label}</p>
+            <p className="text-sm text-zinc-400">
+              {item.label}
+            </p>
+
             <p className="mt-2 text-lg font-semibold text-white">
               {item.value}
             </p>
@@ -175,14 +192,17 @@ export default async function StudentDetailsPage({
         ))}
       </div>
 
+      {/* Родители и законные представители */}
       <section className="mt-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold">
               Родители / законные представители
             </h2>
+
             <p className="mt-2 text-sm text-zinc-400">
-              Контактная информация и ответственные представители ученика.
+              Контактная информация и ответственные
+              представители ученика.
             </p>
           </div>
 
@@ -200,12 +220,14 @@ export default async function StudentDetailsPage({
             className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-red-400"
           >
             Не удалось загрузить список представителей.
-            Проверьте права доступа к таблице student_guardians.
+            Проверьте права доступа к таблице
+            student_guardians.
           </div>
         ) : !guardians || guardians.length === 0 ? (
           <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-6">
             <p className="text-zinc-300">
-              Родители или законные представители пока не указаны.
+              Родители или законные представители
+              пока не указаны.
             </p>
 
             {minor && (
@@ -229,8 +251,9 @@ export default async function StudentDetailsPage({
                     </h3>
 
                     <p className="mt-1 text-sm text-zinc-400">
-                      {relationshipLabels[guardian.relationship] ??
-                        guardian.relationship}
+                      {relationshipLabels[
+                        guardian.relationship
+                      ] ?? guardian.relationship}
                     </p>
                   </div>
 
@@ -248,21 +271,40 @@ export default async function StudentDetailsPage({
                           : "bg-zinc-700/50 text-zinc-300"
                       }`}
                     >
-                      {guardian.is_active ? "Активный" : "Неактивный"}
+                      {guardian.is_active
+                        ? "Активный"
+                        : "Неактивный"}
                     </span>
                   </div>
                 </div>
 
+                {/* Редактирование родителя */}
+                <div className="mt-4 flex justify-end">
+                  <Link
+                    href={`/dashboard/students/${student.id}/guardians/${guardian.id}/edit`}
+                    className="inline-flex items-center rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:border-red-500 hover:bg-zinc-800"
+                  >
+                    Редактировать
+                  </Link>
+                </div>
+
+                {/* Контактная информация */}
                 <div className="mt-4 grid gap-3 border-t border-zinc-800 pt-4 sm:grid-cols-2">
                   <div>
-                    <p className="text-sm text-zinc-400">Телефон</p>
+                    <p className="text-sm text-zinc-400">
+                      Телефон
+                    </p>
+
                     <p className="mt-1 text-white">
                       {guardian.phone}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-zinc-400">Email</p>
+                    <p className="text-sm text-zinc-400">
+                      Email
+                    </p>
+
                     <p className="mt-1 break-all text-white">
                       {guardian.email || "Не указан"}
                     </p>
@@ -273,12 +315,15 @@ export default async function StudentDetailsPage({
           </div>
         )}
 
-        {!guardiansError && minor && activeGuardians.length === 0 && (
-          <div className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-400">
-            Внимание: у несовершеннолетнего ученика нет активного
-            представителя. Проверьте список и статус записей.
-          </div>
-        )}
+        {!guardiansError &&
+          minor &&
+          activeGuardians.length === 0 && (
+            <div className="mt-4 rounded-lg border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-400">
+              Внимание: у несовершеннолетнего ученика
+              нет активного представителя. Проверьте
+              список и статус записей.
+            </div>
+          )}
       </section>
     </div>
   );
