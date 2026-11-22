@@ -34,34 +34,9 @@ function formatAgeRange(
 export default function GroupsPage() {
   return (
     <div className="mx-auto max-w-6xl">
-      <p className="text-sm font-semibold tracking-widest text-red-500">
-        STR OF JIU JITSU
-      </p>
-
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">
-            Тренировочные группы
-          </h1>
-
-          <p className="mt-3 text-zinc-400">
-            Управление группами и возрастными категориями академии
-          </p>
-        </div>
-
-        <Link
-          href="/dashboard/groups/new"
-          className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700"
-        >
-          + Добавить группу
-        </Link>
-      </div>
-
-      <div className="mt-8">
-        <Suspense fallback={<GroupsLoading />}>
-          <GroupsContent />
-        </Suspense>
-      </div>
+      <Suspense fallback={<GroupsLoading />}>
+        <GroupsContent />
+      </Suspense>
     </div>
   );
 }
@@ -82,6 +57,37 @@ async function GroupsContent() {
 
   const supabase = await createClient();
 
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return (
+      <div
+        role="alert"
+        className="rounded-xl border border-zinc-800 bg-zinc-900 p-6"
+      >
+        <p className="text-red-400">
+          Необходимо войти в систему.
+        </p>
+
+        <Link
+          href="/login"
+          className="mt-3 inline-block text-sm text-red-400 hover:underline"
+        >
+          Перейти к авторизации
+        </Link>
+      </div>
+    );
+  }
+
+  const { data: role, error: roleError } =
+    await supabase.rpc("get_my_str_role");
+
+  const isSuperAdmin =
+    !roleError && role === "super_admin";
+
   const { data: groups, error } = await supabase
     .from("training_groups")
     .select(
@@ -90,108 +96,145 @@ async function GroupsContent() {
     .order("name", { ascending: true })
     .limit(100);
 
-  if (error) {
-    return (
-      <div
-        role="alert"
-        className="rounded-xl border border-zinc-800 bg-zinc-900 p-6"
-      >
-        <p className="font-medium text-red-400">
-          Не удалось загрузить тренировочные группы.
-        </p>
-
-        <p className="mt-2 text-sm text-zinc-400">
-          Проверьте доступ к данным и политики безопасности Supabase.
-        </p>
-      </div>
-    );
-  }
-
-  if (!groups || groups.length === 0) {
-    return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-10 text-center">
-        <h2 className="text-lg font-semibold">
-          Пока нет тренировочных групп
-        </h2>
-
-        <p className="mt-2 text-sm text-zinc-400">
-          Создайте первую группу, нажав кнопку выше.
-        </p>
-
-        <Link
-          href="/dashboard/groups/new"
-          className="mt-5 inline-flex rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700"
-        >
-          + Создать группу
-        </Link>
-      </div>
-    );
-  }
-
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-zinc-800 text-zinc-400">
-            <tr>
-              <th className="p-4">Название</th>
-              <th className="p-4">Тип группы</th>
-              <th className="p-4">Возраст</th>
-              <th className="p-4">Вместимость</th>
-              <th className="p-4">Статус</th>
-            </tr>
-          </thead>
+    <>
+      <p className="text-sm font-semibold tracking-widest text-red-500">
+        STR OF JIU JITSU
+      </p>
 
-          <tbody>
-            {groups.map((group) => (
-              <tr
-                key={group.id}
-                className="border-b border-zinc-800/60 transition-colors hover:bg-zinc-800/40"
-              >
-                <td className="p-4">
-                  <Link
-                    href={`/dashboard/groups/${group.id}`}
-                    className="font-medium text-white transition-colors hover:text-red-500 hover:underline"
-                  >
-                    {group.name}
-                  </Link>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">
+            Тренировочные группы
+          </h1>
 
-                  {group.description && (
-                    <p className="mt-1 max-w-sm text-xs text-zinc-400">
-                      {group.description}
-                    </p>
-                  )}
-                </td>
+          <p className="mt-3 text-zinc-400">
+            Управление группами и возрастными категориями академии
+          </p>
+        </div>
 
-                <td className="p-4 text-zinc-300">
-                  {groupTypeLabels[group.group_type] ??
-                    group.group_type}
-                </td>
+        <div className="flex flex-wrap items-center gap-3">
+          {isSuperAdmin && (
+            <Link
+              href="/dashboard/groups/history"
+              className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-3 text-sm font-semibold text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+            >
+              История участников
+            </Link>
+          )}
 
-                <td className="p-4 text-zinc-300">
-                  {formatAgeRange(group.min_age, group.max_age)}
-                </td>
-
-                <td className="p-4 text-zinc-300">
-                  {group.capacity ?? "Не ограничена"}
-                </td>
-
-                <td className="p-4">
-                  <span
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                      group.is_active
-                        ? "bg-green-500/10 text-green-400"
-                        : "bg-zinc-700/50 text-zinc-300"
-                    }`}
-                  >
-                    {group.is_active ? "Активна" : "Неактивна"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          <Link
+            href="/dashboard/groups/new"
+            className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+          >
+            + Добавить группу
+          </Link>
+        </div>
       </div>
-    </div>
+
+      <div className="mt-8">
+        {error ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-zinc-800 bg-zinc-900 p-6"
+          >
+            <p className="font-medium text-red-400">
+              Не удалось загрузить тренировочные группы.
+            </p>
+
+            <p className="mt-2 text-sm text-zinc-400">
+              Проверьте доступ к данным и политики безопасности Supabase.
+            </p>
+          </div>
+        ) : !groups || groups.length === 0 ? (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-10 text-center">
+            <h2 className="text-lg font-semibold">
+              Пока нет тренировочных групп
+            </h2>
+
+            <p className="mt-2 text-sm text-zinc-400">
+              Создайте первую группу, нажав кнопку выше.
+            </p>
+
+            <Link
+              href="/dashboard/groups/new"
+              className="mt-5 inline-flex rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+            >
+              + Создать группу
+            </Link>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-zinc-800 text-zinc-400">
+                  <tr>
+                    <th className="p-4">Название</th>
+                    <th className="p-4">Тип группы</th>
+                    <th className="p-4">Возраст</th>
+                    <th className="p-4">Вместимость</th>
+                    <th className="p-4">Статус</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {groups.map((group) => (
+                    <tr
+                      key={group.id}
+                      className="border-b border-zinc-800/60 transition-colors hover:bg-zinc-800/40"
+                    >
+                      <td className="p-4">
+                        <Link
+                          href={`/dashboard/groups/${group.id}`}
+                          className="font-medium text-white transition-colors hover:text-red-500 hover:underline"
+                        >
+                          {group.name}
+                        </Link>
+
+                        {group.description && (
+                          <p className="mt-1 max-w-sm text-xs text-zinc-400">
+                            {group.description}
+                          </p>
+                        )}
+                      </td>
+
+                      <td className="p-4 text-zinc-300">
+                        {groupTypeLabels[group.group_type] ??
+                          group.group_type}
+                      </td>
+
+                      <td className="p-4 text-zinc-300">
+                        {formatAgeRange(
+                          group.min_age,
+                          group.max_age,
+                        )}
+                      </td>
+
+                      <td className="p-4 text-zinc-300">
+                        {group.capacity ?? "Не ограничена"}
+                      </td>
+
+                      <td className="p-4">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                            group.is_active
+                              ? "bg-green-500/10 text-green-400"
+                              : "bg-zinc-700/50 text-zinc-300"
+                          }`}
+                        >
+                          {group.is_active
+                            ? "Активна"
+                            : "Неактивна"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

@@ -45,14 +45,20 @@ export async function enrollStudent(
   const studentId = String(formData.get("studentId") ?? "");
 
   if (!groupId || !studentId) {
-    return { status: "error", message: "Выберите ученика." };
+    return {
+      status: "error",
+      message: "Выберите ученика.",
+    };
   }
 
   const { supabase, error: accessError } =
     await verifySuperAdmin();
 
   if (accessError) {
-    return { status: "error", message: accessError };
+    return {
+      status: "error",
+      message: accessError,
+    };
   }
 
   const { error } = await supabase.rpc(
@@ -87,6 +93,7 @@ export async function enrollStudent(
   revalidatePath(`/dashboard/groups/${groupId}`);
   revalidatePath("/dashboard/groups");
   revalidatePath("/dashboard/students");
+  revalidatePath("/dashboard/groups/history");
 
   return {
     status: "success",
@@ -103,6 +110,10 @@ export async function removeStudent(
     formData.get("enrollmentId") ?? "",
   );
 
+  const reason = String(
+    formData.get("removalReason") ?? "",
+  ).trim();
+
   if (!groupId || !enrollmentId) {
     return {
       status: "error",
@@ -110,35 +121,64 @@ export async function removeStudent(
     };
   }
 
+  if (reason.length < 3 || reason.length > 500) {
+    return {
+      status: "error",
+      message:
+        "Укажите причину исключения от 3 до 500 символов.",
+    };
+  }
+
   const { supabase, error: accessError } =
     await verifySuperAdmin();
 
   if (accessError) {
-    return { status: "error", message: accessError };
+    return {
+      status: "error",
+      message: accessError,
+    };
   }
 
   const { error } = await supabase.rpc(
     "remove_student_from_training_group",
     {
       p_enrollment_id: enrollmentId,
+      p_reason: reason,
     },
   );
 
   if (error) {
+    if (error.message.includes("не найден")) {
+      return {
+        status: "error",
+        message:
+          "Активное зачисление не найдено. Обновите страницу.",
+      };
+    }
+
+    if (error.message.includes("причину исключения")) {
+      return {
+        status: "error",
+        message:
+          "Укажите причину исключения от 3 до 500 символов.",
+      };
+    }
+
     return {
       status: "error",
-      message: error.message.includes("не найден")
-        ? "Активное зачисление не найдено. Обновите страницу."
-        : "Не удалось исключить ученика. Проверьте доступ и попробуйте ещё раз.",
+      message:
+        "Не удалось исключить ученика. Проверьте доступ и попробуйте ещё раз.",
     };
   }
 
   revalidatePath(`/dashboard/groups/${groupId}`);
   revalidatePath("/dashboard/groups");
   revalidatePath("/dashboard/students");
+  revalidatePath("/dashboard/groups/history");
 
   return {
     status: "success",
-    message: "Ученик исключён из группы. История зачисления сохранена.",
+    message:
+      "Ученик исключён из группы. Причина и история сохранены.",
   };
 }

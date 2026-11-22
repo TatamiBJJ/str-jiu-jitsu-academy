@@ -1,7 +1,8 @@
 
+import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-
+import { Suspense } from "react";
 const beltLabels: Record<string, string> = {
   white: "Белый",
   grey_white: "Серо-белый",
@@ -39,13 +40,23 @@ function formatDate(value: string | null): string {
   return `${parts[2]}.${parts[1]}.${parts[0]}`;
 }
 
-export default async function StudentsPage() {
+export default function StudentsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-zinc-400">Загружаем учеников...</div>}>
+      <StudentsContent />
+    </Suspense>
+  );
+}
+
+async function StudentsContent() {
+  await connection();
+
   const supabase = await createClient();
 
   const { data: students, error } = await supabase
     .from("students")
     .select(
-      "id, first_name, last_name, date_of_birth, belt, status, phone"
+      "id, first_name, last_name, date_of_birth, belt, status, phone",
     )
     .order("last_name", { ascending: true })
     .limit(100);
