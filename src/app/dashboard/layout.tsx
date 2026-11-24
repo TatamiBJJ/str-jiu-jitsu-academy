@@ -1,4 +1,3 @@
-
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
@@ -15,11 +14,15 @@ export default function DashboardLayout({
     <Suspense
       fallback={
         <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-white">
-          <p className="text-zinc-400">Загрузка STR OF JIU JITSU...</p>
+          <p className="text-zinc-400">
+            Загрузка STR OF JIU JITSU...
+          </p>
         </main>
       }
     >
-      <AuthenticatedDashboard>{children}</AuthenticatedDashboard>
+      <AuthenticatedDashboard>
+        {children}
+      </AuthenticatedDashboard>
     </Suspense>
   );
 }
@@ -46,16 +49,13 @@ async function AuthenticatedDashboard({
     await supabase.rpc("get_my_str_role");
 
   if (roleError || role !== "super_admin") {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-white">
-        <p>Доступ ограничен</p>
-      </main>
-    );
+    redirect("/pending");
   }
 
   return (
     <div className="flex min-h-screen bg-zinc-950 text-white">
       <Sidebar />
+
       <main className="min-w-0 flex-1 p-8">
         {children}
       </main>

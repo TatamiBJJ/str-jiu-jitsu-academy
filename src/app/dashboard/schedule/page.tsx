@@ -28,6 +28,15 @@ type TrainingGroup = {
   name: string;
 };
 
+type ScheduleAccess = {
+  academy_id: string;
+  member_role: string;
+  can_view_schedule: boolean;
+  can_edit_schedule: boolean;
+  can_manage_all_sessions: boolean;
+  head_group_ids: string[];
+  assistant_group_ids: string[];
+};
 
 const days = [
   "Понедельник",
@@ -106,7 +115,8 @@ async function ScheduleContent() {
 
   const supabase = await createClient();
 
-  // Проверка авторизации
+  // 1. Проверка авторизации
+
   const {
     data: { user },
     error: authError,
@@ -116,102 +126,147 @@ async function ScheduleContent() {
     redirect("/login");
   }
 
-  // Используем существующие RPC для определения
-  // административной роли и академии.
-  const [roleResult, academyResult] =
-    await Promise.all([
-      supabase.rpc("get_my_str_role"),
-      supabase.rpc(
-        "get_my_str_admin_academy_id",
-      ),
-    ]);
+  // 2. Получение прав через защищенную RPC
 
-  if (roleResult.error || academyResult.error) {
-    console.error("Access RPC failed:", {
-      role: roleResult.error?.code,
-      academy: academyResult.error?.code,
-    });
+  const {
+    data: accessData,
+    error: accessError,
+  } = await supabase.rpc(
+    "get_my_str_schedule_access",
+  );
+
+  if (accessError) {
+    console.error(
+      "Schedule access RPC failed:",
+      accessError.code,
+    );
 
     return (
-      <ErrorMessage message="Не удалось проверить доступ к академии." />
+      <ErrorMessage message="Не удалось проверить права доступа к расписанию." />
     );
   }
 
-  const role = String(roleResult.data ?? "");
-  const academyId =
-    academyResult.data as string | null;
+  const accessRows =
+    (accessData ?? []) as ScheduleAccess[];
 
-  if (!academyId) {
-    return (
-      <ErrorMessage message="Не удалось определить академию." />
-    );
-  }
+  const availableAcademies = accessRows.filter(
+    (row) => row.can_view_schedule === true,
+  );
 
-  const isAdmin =
-    role === "super_admin" ||
-    role === "admin";
-
-  const isManager = role === "manager";
-
-  const today = getKazakhstanDate();
-
-  // Проверяем, является ли пользователь
-  // главным тренером конкретных групп.
-  //
-  // Используем существующий member_id,
-  // если он доступен через RLS.
-
-  // Назначения главного тренера.
-  // Администратору не требуется дополнительная
-  // проверка через academy_members.
-  const headCoachGroupIds = new Set<string>();
-
-  if (!isAdmin && !isManager) {
-    // Доступ главного тренера подключим
-    // через отдельную защищённую RPC.
-    // Прямые запросы к academy_members
-    // не выполняем из-за RLS (42501).
-  }
-
-  const isHeadCoach =
-    headCoachGroupIds.size > 0;
-
-
-  if (
-    !isAdmin &&
-    !isManager &&
-    !isHeadCoach
-  ) {
+  if (availableAcademies.length === 0) {
     return (
       <ErrorMessage message="Недостаточно прав для просмотра расписания." />
     );
   }
 
-  // Загружаем регулярное расписание
-  // и тренировочные группы.
+  // Пока система работает с одной академией.
+  // При подключении нескольких академий
+  // потребуется отдельный выбор академии.
+
+  const academyIds = new Set(
+    availableAcademies.map(
+      (row) => row.academy_id,
+    ),
+  );
+
+  if (academyIds.size !== 1) {
+    return (
+      <ErrorMessage message="Необходимо выбрать академию для просмотра расписания." />
+    );
+  }
+
+  const academyId =
+    availableAcademies[0].academy_id;
+
+  const canEditSchedule =
+    availableAcademies.some(
+      (row) => row.can_edit_schedule === true,
+    );
+
+  const canManageAllSessions =
+    availableAcademies.some(
+      (row) =>
+        row.can_manage_all_sessions === true,
+    );
+
+  const headCoachGroupIds = new Set<string>(
+    availableAcademies.flatMap(
+      (row) => row.head_group_ids ?? [],
+    ),
+  );
+
+  const assistantCoachGroupIds = new Set<string>(
+    availableAcademies.flatMap(
+      (row) => row.assistant_group_ids ?? [],
+    ),
+  );
+
+  const allowedGroupIds = Array.from(
+    new Set([
+      ...headCoachGroupIds,
+      ...assistantCoachGroupIds,
+    ]),
+  );
+
+  const hasFullScheduleAccess =
+    canEditSchedule || canManageAllSessions;
+
+  if (
+    !hasFullScheduleAccess &&
+    allowedGroupIds.length === 0
+  ) {
+    return (
+      <ErrorMessage message="У вас нет закрепленных тренировочных групп." />
+    );
+  }
+
+  const today = getKazakhstanDate();
+
+  // 3. Загрузка расписания
+
+  let schedulesQuery = supabase
+    .from("training_schedules")
+    .select(
+      "id, group_id, day_of_week, start_time, end_time, training_type, valid_from, valid_until, is_active",
+    )
+    .eq("academy_id", academyId)
+    .eq("is_active", true)
+    .order("day_of_week", {
+      ascending: true,
+    })
+    .order("start_time", {
+      ascending: true,
+    });
+
+  // 4. Загрузка тренировочных групп
+
+  let groupsQuery = supabase
+    .from("training_groups")
+    .select("id, name")
+    .eq("academy_id", academyId)
+    .order("name", {
+      ascending: true,
+    });
+
+  // Дополнительная фильтрация для тренеров.
+  // Основная защита остается на уровне RLS.
+
+  if (!hasFullScheduleAccess) {
+    schedulesQuery = schedulesQuery.in(
+      "group_id",
+      allowedGroupIds,
+    );
+
+    groupsQuery = groupsQuery.in(
+      "id",
+      allowedGroupIds,
+    );
+  }
+
   const [schedulesResult, groupsResult] =
     await Promise.all([
-      supabase
-        .from("training_schedules")
-        .select(
-          "id, group_id, day_of_week, start_time, end_time, training_type, valid_from, valid_until, is_active",
-        )
-        .eq("academy_id", academyId)
-        .eq("is_active", true)
-        .order("day_of_week", {
-          ascending: true,
-        })
-        .order("start_time", {
-          ascending: true,
-        }),
-
-      supabase
-        .from("training_groups")
-        .select("id, name")
-        .eq("academy_id", academyId)
-        .order("name", {
-          ascending: true,
-        }),
+      schedulesQuery,
+      groupsQuery,
     ]);
 
   if (
@@ -219,10 +274,8 @@ async function ScheduleContent() {
     groupsResult.error
   ) {
     console.error("Schedule loading failed:", {
-      schedules:
-        schedulesResult.error?.code,
-      groups:
-        groupsResult.error?.code,
+      schedules: schedulesResult.error?.code,
+      groups: groupsResult.error?.code,
     });
 
     return (
@@ -243,22 +296,21 @@ async function ScheduleContent() {
     ]),
   );
 
-  // Начало сегодняшнего дня в Казахстане
+  // 5. Определяем период ближайших занятий
+
   const todayStart = new Date(
     `${today}T00:00:00+05:00`,
   );
 
   const until = new Date(todayStart);
+
   until.setUTCDate(
     until.getUTCDate() + 14,
   );
 
-  // Загружаем конкретные занятия
-  // на ближайшие 14 дней.
-  const {
-    data: sessionsData,
-    error: sessionsError,
-  } = await supabase
+  // 6. Загрузка конкретных тренировок
+
+  let sessionsQuery = supabase
     .from("training_sessions")
     .select(
       "id, group_id, starts_at, ends_at, training_type, status",
@@ -277,6 +329,18 @@ async function ScheduleContent() {
     })
     .limit(200);
 
+  if (!hasFullScheduleAccess) {
+    sessionsQuery = sessionsQuery.in(
+      "group_id",
+      allowedGroupIds,
+    );
+  }
+
+  const {
+    data: sessionsData,
+    error: sessionsError,
+  } = await sessionsQuery;
+
   if (sessionsError) {
     console.error(
       "Training sessions loading failed:",
@@ -291,23 +355,25 @@ async function ScheduleContent() {
   const upcomingSessions =
     (sessionsData ?? []) as UpcomingSession[];
 
-  // Администратор управляет всеми занятиями.
-  // Главный тренер — только своими группами.
-  // Менеджер не получает кнопки управления.
+  // 7. Определяем право управления занятиями.
+  //
+  // Администратор — все занятия.
+  // Главный тренер — только свои группы.
+  // Ассистент — только просмотр.
+
   const canManageSessionIds =
     upcomingSessions
-      .filter((session) => {
-        if (isAdmin) {
-          return true;
-        }
-
-        return headCoachGroupIds.has(
-          session.group_id,
-        );
-      })
+      .filter(
+        (session) =>
+          canManageAllSessions ||
+          headCoachGroupIds.has(
+            session.group_id,
+          ),
+      )
       .map((session) => session.id);
 
-  // Активное и будущее недельное расписание
+  // 8. Формируем недельное расписание
+
   const currentSchedules =
     schedules.filter(
       (schedule) =>
@@ -321,11 +387,18 @@ async function ScheduleContent() {
       dayOfWeek: index + 1,
       schedules: currentSchedules.filter(
         (schedule) =>
-          schedule.day_of_week ===
-          index + 1,
+          schedule.day_of_week === index + 1,
       ),
     }),
   );
+
+  // 9. Определяем подпись уровня доступа
+
+  const accessLabel = canEditSchedule
+    ? "Полный доступ"
+    : headCoachGroupIds.size > 0
+      ? "Главный тренер"
+      : "Только просмотр";
 
   return (
     <>
@@ -333,19 +406,59 @@ async function ScheduleContent() {
         STR OF JIU JITSU
       </p>
 
-      <div className="mt-5">
-        <h1 className="text-3xl font-bold text-white">
-          Расписание тренировок
-        </h1>
+      <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-white">
+            Расписание тренировок
+          </h1>
 
-        <p className="mt-3 text-zinc-400">
-          Регулярное расписание тренировочных
-          групп и управление занятиями.
-        </p>
+          <p className="mt-3 text-zinc-400">
+            Регулярное расписание тренировочных
+            групп и управление занятиями.
+          </p>
+        </div>
+
+        <span
+          className={
+            canEditSchedule
+              ? "rounded-lg border border-green-500/20 bg-green-500/10 px-4 py-2 text-xs font-semibold text-green-400"
+              : "rounded-lg border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-xs font-semibold text-blue-400"
+          }
+        >
+          {accessLabel}
+        </span>
       </div>
 
-      {/* Форма добавления расписания */}
-      {isAdmin && (
+      {/* Информация для тренеров */}
+
+      {!hasFullScheduleAccess && (
+        <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+          <p className="text-sm font-medium text-white">
+            Ваши тренировочные группы
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {groups.map((group) => (
+              <span
+                key={group.id}
+                className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-300"
+              >
+                {group.name}
+
+                {headCoachGroupIds.has(
+                  group.id,
+                )
+                  ? " — главный тренер"
+                  : " — ассистент"}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Создание расписания */}
+
+      {canEditSchedule && (
         <section className="mt-8">
           <h2 className="mb-5 text-xl font-bold text-white">
             Добавить тренировку в расписание
@@ -356,6 +469,7 @@ async function ScheduleContent() {
       )}
 
       {/* Недельное расписание */}
+
       <section className="mt-12">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-bold text-white">
@@ -399,7 +513,9 @@ async function ScheduleContent() {
                               {formatTime(
                                 schedule.start_time,
                               )}
+
                               {" — "}
+
                               {formatTime(
                                 schedule.end_time,
                               )}
@@ -420,8 +536,9 @@ async function ScheduleContent() {
                             </span>
                           </div>
 
-                          {/* Редактирование только администратором */}
-                          {isAdmin && (
+                          {/* Редактирование расписания */}
+
+                          {canEditSchedule && (
                             <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
                               <EditScheduleButton
                                 schedule={schedule}
@@ -445,7 +562,8 @@ async function ScheduleContent() {
         </div>
       </section>
 
-      {/* Конкретные занятия */}
+      {/* Ближайшие занятия */}
+
       <UpcomingSessions
         sessions={upcomingSessions}
         groupNames={Object.fromEntries(
