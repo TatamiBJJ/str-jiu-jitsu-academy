@@ -1,15 +1,24 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { Clock3, ShieldCheck } from "lucide-react";
+import { redirect } from "next/navigation";
+
+import {
+  Clock3,
+  ShieldCheck,
+  ShieldOff,
+  MailWarning,
+  AlertCircle,
+  Construction,
+} from "lucide-react";
+
 import { createClient } from "@/lib/supabase/server";
 
 export default function PendingPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-white">
-          <p className="text-zinc-400">Загрузка...</p>
+        <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+          Проверяем статус аккаунта...
         </main>
       }
     >
@@ -32,12 +41,32 @@ async function PendingContent() {
     redirect("/login");
   }
 
-  const { data: role, error: roleError } =
-    await supabase.rpc("get_my_str_role");
+  // Получаем статус аккаунта и активную роль.
 
-  // Перенаправление по ролям
+  const [statusResult, roleResult] = await Promise.all([
+    supabase.rpc("get_my_str_account_status"),
+    supabase.rpc("get_my_str_role"),
+  ]);
 
-  if (!roleError) {
+  const accountStatus = statusResult.data;
+  const role = roleResult.data;
+
+  const validStatuses = [
+    "pending",
+    "active",
+    "inactive",
+    "email_unconfirmed",
+  ];
+
+  const hasError =
+    Boolean(statusResult.error) ||
+    Boolean(roleResult.error) ||
+    !validStatuses.includes(String(accountStatus)) ||
+    (accountStatus === "active" && !role);
+
+  // Перенаправляем только активных пользователей.
+
+  if (!hasError && accountStatus === "active") {
     switch (role) {
       case "super_admin":
         redirect("/dashboard");
@@ -50,9 +79,6 @@ async function PendingContent() {
     }
   }
 
-  const hasAssignedRole =
-    !roleError && Boolean(role);
-
   const roleLabels: Record<string, string> = {
     super_admin: "Super Admin",
     admin: "Администратор",
@@ -62,26 +88,94 @@ async function PendingContent() {
     student: "Ученик",
   };
 
-  const roleLabel =
-    roleLabels[String(role)] ?? "Не назначена";
+  let statusTitle = "Ожидание подтверждения";
 
-  const statusTitle = roleError
-    ? "Не удалось проверить доступ"
-    : hasAssignedRole
-      ? "Ваш кабинет готовится"
-      : "Ожидание подтверждения";
+  let statusDescription =
+    "Ваш аккаунт создан. Для получения доступа к системе администратор академии должен назначить вам соответствующую роль.";
 
-  const statusDescription = roleError
-    ? "Попробуйте проверить статус повторно."
-    : hasAssignedRole
-      ? "Ваша роль уже назначена. Личный кабинет для этой роли пока недоступен."
-      : "Ваш аккаунт создан. Для получения доступа к системе администратор академии должен назначить вам соответствующую роль.";
+  let statusLabel = "Ожидает назначения доступа";
+  let roleLabel = "Не назначена";
 
-  const accountStatus = roleError
-    ? "Ошибка проверки доступа"
-    : hasAssignedRole
-      ? "Роль назначена"
-      : "Ожидает назначения доступа";
+  let StatusIcon = Clock3;
+
+  let statusColor = "text-amber-400";
+
+  let iconBackground =
+    "border-amber-500/20 bg-amber-500/10";
+
+  // Ошибка проверки доступа.
+
+  if (hasError) {
+    statusTitle = "Не удалось проверить доступ";
+
+    statusDescription =
+      "Возникла ошибка при проверке статуса аккаунта. Попробуйте обновить статус повторно.";
+
+    statusLabel = "Ошибка проверки доступа";
+
+    StatusIcon = AlertCircle;
+
+    statusColor = "text-red-400";
+
+    iconBackground =
+      "border-red-500/20 bg-red-500/10";
+  }
+
+  // Электронная почта не подтверждена.
+
+  else if (accountStatus === "email_unconfirmed") {
+    statusTitle = "Подтвердите электронную почту";
+
+    statusDescription =
+      "Для получения доступа к системе необходимо подтвердить электронную почту. Проверьте входящие сообщения и папку «Спам».";
+
+    statusLabel = "Email не подтверждён";
+
+    roleLabel = "Доступ не предоставлен";
+
+    StatusIcon = MailWarning;
+  }
+
+  // Все назначенные роли отключены.
+
+  else if (accountStatus === "inactive") {
+    statusTitle = "Доступ отключён";
+
+    statusDescription =
+      "Администратор академии отключил ваш доступ к системе. Для восстановления доступа обратитесь к администрации академии.";
+
+    statusLabel = "Доступ отключён";
+
+    roleLabel = "Нет активных ролей";
+
+    StatusIcon = ShieldOff;
+
+    statusColor = "text-red-400";
+
+    iconBackground =
+      "border-red-500/20 bg-red-500/10";
+  }
+
+  // Роль назначена, но кабинет ещё не реализован.
+
+  else if (accountStatus === "active") {
+    statusTitle = "Ваш кабинет готовится";
+
+    statusDescription =
+      "Ваш аккаунт подтверждён, и роль успешно назначена. Личный кабинет для этой роли пока недоступен.";
+
+    statusLabel = "Роль назначена";
+
+    roleLabel =
+      roleLabels[String(role)] ?? "Неизвестная роль";
+
+    StatusIcon = Construction;
+
+    statusColor = "text-blue-400";
+
+    iconBackground =
+      "border-blue-500/20 bg-blue-500/10";
+  }
 
   async function signOut() {
     "use server";
@@ -99,7 +193,6 @@ async function PendingContent() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-10 text-white">
-
       <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-zinc-900 p-8">
 
         <h1 className="text-center text-3xl font-black">
@@ -114,11 +207,13 @@ async function PendingContent() {
         </p>
 
         <div className="mt-8 flex justify-center">
-
-          <div className="rounded-full border border-amber-500/20 bg-amber-500/10 p-5">
-            <Clock3 className="h-10 w-10 text-amber-400" />
+          <div
+            className={`rounded-full border p-5 ${iconBackground}`}
+          >
+            <StatusIcon
+              className={`h-10 w-10 ${statusColor}`}
+            />
           </div>
-
         </div>
 
         <h2 className="mt-6 text-center text-xl font-bold">
@@ -142,26 +237,19 @@ async function PendingContent() {
           </div>
 
           <div className="border-t border-zinc-800 pt-4">
-
             <p className="text-xs text-zinc-500">
               Статус аккаунта
             </p>
 
             <p
-              className={`mt-1 text-sm font-semibold ${
-                hasAssignedRole
-                  ? "text-green-400"
-                  : "text-amber-400"
-              }`}
+              className={`mt-1 text-sm font-semibold ${statusColor}`}
             >
-              {accountStatus}
+              {statusLabel}
             </p>
-
           </div>
 
-          {!roleError && (
+          {!hasError && (
             <div className="border-t border-zinc-800 pt-4">
-
               <p className="text-xs text-zinc-500">
                 Ваша роль
               </p>
@@ -169,7 +257,6 @@ async function PendingContent() {
               <p className="mt-1 text-sm font-medium">
                 {roleLabel}
               </p>
-
             </div>
           )}
 
@@ -205,7 +292,6 @@ async function PendingContent() {
         </form>
 
       </div>
-
     </main>
   );
 }
